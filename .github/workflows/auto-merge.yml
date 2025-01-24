@@ -1,0 +1,81 @@
+name: Auto Merge Contributors PR
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+
+jobs:
+  auto_merge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up environment
+        run: echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
+
+      - name: Check PR files and changes
+        id: check_pr
+        run: |
+          PR_FILES=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" | \
+            jq -r '.[].filename' | tr '\n' ' ')
+          ADDITIONS=${{ github.event.pull_request.additions }}
+          DELETIONS=${{ github.event.pull_request.deletions }}
+
+          echo "files_changed=$PR_FILES" >> $GITHUB_ENV
+          echo "only_contributors=false" >> $GITHUB_ENV
+          echo "one_line_change=false" >> $GITHUB_ENV
+
+          if [[ "$PR_FILES" == "Contributors.md" ]]; then
+            echo "only_contributors=true" >> $GITHUB_ENV
+          fi
+
+          if [[ ($ADDITIONS == 1 && $DELETIONS == 0) || ($ADDITIONS == 2 && $DELETIONS == 1) ]]; then
+            echo "one_line_change=true" >> $GITHUB_ENV
+          fi
+
+      - name: Merge PR
+        if: env.only_contributors == 'true' && env.one_line_change == 'true'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const mergeResponse = await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              merge_method: "squash"
+            });
+
+            if (mergeResponse.status === 200) {
+              const gifs = [
+                'https://c.tenor.com/ZCq4SwgCfxAAAAAC/snoopy-peanuts.gif',
+                'https://c.tenor.com/Z0ojZS2kpO0AAAAC/milk-and-mocha-happy.gif'
+              ];
+              const gif = gifs[Math.floor(Math.random() * gifs.length)];
+              const message = `🎉 Congrats @${context.payload.pull_request.user.login} on your successful contribution! ![celebration](${gif})`;
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: message
+              });
+            } else {
+              throw new Error("Merge failed. Please check logs.");
+            }
+
+      - name: Notify if not merged
+        if: env.only_contributors != 'true'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const body = `🚨 This PR contains changes in files other than \`Contributors.md\`. Please review:\n\n${process.env.files_changed.split(' ').map(file => `- ${file}`).join('\n')}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body
+            });
