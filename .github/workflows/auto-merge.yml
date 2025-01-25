@@ -1,18 +1,18 @@
 name: Auto Merge Contributors PR
 
-permissions:
-  pull-requests: write
-  contents: write
-
 on:
-  pull_request:
-    types:
-      - opened
-      - synchronize
-
+  pull_request_target:
+    types: [opened, synchronize]
+    paths:
+      - 'Contributors.md' # <- only run if only contributors file changed
+    
 jobs:
-  auto_merge:
+  auto-merge:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
 
     steps:
       - name: Set up environment
